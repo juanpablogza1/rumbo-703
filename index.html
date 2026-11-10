@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#eef1f4" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0d1116" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -47,6 +47,25 @@
 html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--body);-webkit-font-smoothing:antialiased}
 button,input,textarea{font:inherit;color:inherit}
+html,body{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+button,a,input{touch-action:manipulation}
+input,textarea{font-size:16px}
+/* pull to refresh */
+.ptr{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 8px);z-index:9;transform:translate(-50%,-60px);width:38px;height:38px;border-radius:50%;
+  background:var(--surface);border:1px solid var(--line);box-shadow:0 2px 8px rgba(0,0,0,.12);display:grid;place-items:center;color:var(--accent);transition:transform .2s ease}
+.ptr svg{width:20px;height:20px}
+.ptr.spin svg{animation:sp .8s linear infinite}
+@media (prefers-reduced-motion: reduce){.ptr{transition:none}.ptr.spin svg{animation:none}}
+/* actividad reciente */
+.act{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+.act:first-of-type{border-top:0;padding-top:0;margin-top:0}
+.act .top{display:flex;align-items:center;gap:10px}
+.act .ic{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;flex:none;color:#fff;font:700 13px var(--body)}
+.act .nm{font-weight:600;font-size:16px;line-height:1.2}
+.act .when{font-size:12.5px;color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}
+.stats .k{font-size:11.5px;color:var(--muted)}
+.stats .v{font:600 20px/1.1 var(--display);font-variant-numeric:tabular-nums}
 button{cursor:pointer}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .app{max-width:520px;margin:0 auto;padding:0 max(16px, env(safe-area-inset-right)) calc(96px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left))}
@@ -184,6 +203,7 @@ nav.tabs a[aria-current="page"]{color:var(--accent);border-top-color:var(--accen
   <div class="view on" id="v-hoy">
     <section class="card" id="keyCard" style="display:none"><h2>Falta tu clave</h2><p class="small" style="margin:0 0 10px">Abre el link de configuración que te mandó Claude o pega la clave en Ajustes.</p><button class="btn primary" id="goKey" type="button">Ir a Ajustes</button></section>
     <section class="card" id="readyCard" aria-live="polite"></section>
+    <section class="card" id="actCard"></section>
     <section class="card">
       <h2>¿Qué quieres hacer hoy?</h2>
       <div class="seg" role="group" aria-label="Disciplina">
@@ -334,7 +354,8 @@ function normActs(list) {
     let re = sm.relative_effort != null ? sm.relative_effort : a.relative_effort;
     if (re == null) re = r0(min/60 * ({bike:45, run:60, swim:50, str:30}[s] || 15));
     return { id:String(a.id), d:(a.start_local||"").slice(0,10), t:(a.start_local||"").slice(11,16), s, type:a.sport_type,
-             n:a.name || "", km:(sm.distance || a.distance || 0)/1000, min, re };
+             n:a.name || "", km:(sm.distance || a.distance || 0)/1000, min, re,
+             el: sm.elevation_gain, spd: sm.avg_speed, cal: sm.total_calories, kudos: sm.kudos_count, loc: a.location_summary };
   }).filter(a => a.d && !(a.s === "str" && a.min < 10));   // descarta “Workout” de transiciones
 }
 function actsOn(d) { return S.acts.filter(a => a.d === d); }
@@ -723,7 +744,7 @@ function renderFreshOld() {
 }
 function renderAll() {
   const R = readiness();
-  renderHeader(); renderReady(R); renderToday(R); renderFocus(); renderWeek(R);
+  renderHeader(); renderReady(R); renderActs(); renderToday(R); renderFocus(); renderWeek(R);
   chartHrv(); chartSleep(); chartWeeks(); renderLoad(); renderFresh();
   document.getElementById("ftp").value = S.ftp;
 }
@@ -803,6 +824,65 @@ document.getElementById("keySave").addEventListener("click", async () => {
 });
 document.getElementById("goKey").addEventListener("click", () => route("ajustes"));
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") loadBundle(false).catch(() => {}); });
+
+/* ---------- actividad reciente (estilo Strava) ---------- */
+const SPORT_ES = {Ride:"Bici", GravelRide:"Gravel", MountainBikeRide:"MTB", VirtualRide:"Bici virtual", EBikeRide:"E-bike", Run:"Carrera", TrailRun:"Trail", VirtualRun:"Carrera virtual",
+  Swim:"Natación", Walk:"Caminata", Hike:"Senderismo", WeightTraining:"Pesas", Workout:"Entrenamiento", Kayaking:"Kayak", Padel:"Pádel", Yoga:"Yoga"};
+function paceStr(min, km) { if (!km) return "–"; const s = min*60/km; return Math.floor(s/60)+":"+pad(r0(s%60))+" /km"; }
+function renderActs() {
+  const el = document.getElementById("actCard");
+  if (!S.acts.length) { el.innerHTML = '<h2>Actividad reciente</h2><p class="muted small">Sin actividades de Strava todavía.</p>'; return; }
+  const t = today(), todays = S.acts.filter(a => a.d === t).slice().reverse();
+  const list = todays.length ? todays : [S.acts[S.acts.length-1]];
+  const ago = d => { const n = diffDays(t, d); return n === 0 ? "Hoy" : n === 1 ? "Ayer" : DIA[dow(d)]+" "+fmtD(d); };
+  el.innerHTML = '<h2>'+(todays.length ? "Hoy en Strava" : "Última actividad")+'</h2>' + list.map(a => {
+    const st = [];
+    if (a.km >= 0.05) st.push(["Distancia", (a.s === "swim" ? r0(a.km*1000)+" m" : a.km.toFixed(1)+" km")]);
+    st.push(["Tiempo", fmtMin(a.min)]);
+    if (a.s === "run" || a.type === "Walk" || a.type === "Hike") st.push(["Ritmo", paceStr(a.min, a.km)]);
+    else if (a.s === "swim") st.push(["Ritmo", a.km ? (()=>{const s=a.min*60/(a.km*10);return Math.floor(s/60)+":"+pad(r0(s%60))+" /100m";})() : "–"]);
+    else if (a.km && a.min) st.push(["Velocidad", (a.km/(a.min/60)).toFixed(1)+" km/h"]);
+    if (a.el != null && a.s !== "swim") st.push(["Desnivel", r0(a.el)+" m"]);
+    st.push(["Rel. Effort", a.re != null ? String(a.re) : "–"]);
+    const show = st.slice(0, 4);
+    const ini = {bike:"B", run:"C", swim:"N", str:"P"}[a.s] || "•";
+    return '<div class="act"><div class="top"><span class="ic" style="background:'+(SPC[a.s]||"var(--muted)")+'" aria-hidden="true">'+ini+'</span><div style="min-width:0">'+
+      '<div class="nm">'+esc(a.n || SPORT_ES[a.type] || a.type)+'</div><div class="when">'+esc(SPORT_ES[a.type] || a.type)+' · '+ago(a.d)+' '+esc(a.t)+(a.loc ? ' · '+esc(a.loc) : '')+'</div></div></div>'+
+      '<div class="stats">'+show.map(([k,v]) => '<div><div class="k">'+k+'</div><div class="v">'+esc(v)+'</div></div>').join("")+'</div></div>';
+  }).join("");
+}
+
+/* ---------- sin zoom (iOS ignora user-scalable en algunos casos) ---------- */
+["gesturestart","gesturechange","gestureend"].forEach(ev => document.addEventListener(ev, e => e.preventDefault(), {passive:false}));
+document.addEventListener("touchmove", e => { if (e.touches && e.touches.length > 1) e.preventDefault(); }, {passive:false});
+
+/* ---------- jalar para actualizar ---------- */
+(function pullToRefresh() {
+  const ind = document.createElement("div");
+  ind.className = "ptr"; ind.setAttribute("aria-hidden", "true");
+  ind.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>';
+  document.body.appendChild(ind);
+  let y0 = null, dy = 0, busy = false;
+  const TH = 70;
+  document.addEventListener("touchstart", e => { if (busy || window.scrollY > 0 || e.touches.length !== 1) { y0 = null; return; } y0 = e.touches[0].clientY; dy = 0; }, {passive:true});
+  document.addEventListener("touchmove", e => {
+    if (y0 == null) return;
+    dy = e.touches[0].clientY - y0;
+    if (dy <= 0 || window.scrollY > 0) { ind.style.transform = "translate(-50%,-60px)"; return; }
+    if (e.cancelable) e.preventDefault();
+    const p = Math.min(dy, 120);
+    ind.style.transition = "none";
+    ind.style.transform = "translate(-50%," + (p*0.6 - 40) + "px) rotate(" + (p*3) + "deg)";
+    ind.style.opacity = String(Math.min(1, p / TH));
+  }, {passive:false});
+  document.addEventListener("touchend", async () => {
+    if (y0 == null) return;
+    y0 = null; ind.style.transition = "";
+    if (dy < TH) { ind.style.transform = "translate(-50%,-60px)"; return; }
+    busy = true; ind.classList.add("spin"); ind.style.transform = "translate(-50%,16px)";
+    try { await refresh(); } finally { ind.classList.remove("spin"); ind.style.transform = "translate(-50%,-60px)"; busy = false; }
+  });
+})();
 
 route("hoy"); renderAll();
 loadBundle(false).catch(() => {});
