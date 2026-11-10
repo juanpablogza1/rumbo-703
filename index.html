@@ -59,6 +59,9 @@ input,textarea{font-size:16px}
 /* actividad reciente */
 .act{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
 .act:first-of-type{border-top:0;padding-top:0;margin-top:0}
+.act{display:block;color:inherit;text-decoration:none;border-radius:10px}
+.act:active{background:var(--surface-2)}
+.act .open{font-size:13px;font-weight:600;color:var(--bike);margin-top:8px}
 .act .top{display:flex;align-items:center;gap:10px}
 .act .ic{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;flex:none;color:#fff;font:700 13px var(--body)}
 .act .nm{font-weight:600;font-size:16px;line-height:1.2}
@@ -846,9 +849,9 @@ function renderActs() {
     st.push(["Rel. Effort", a.re != null ? String(a.re) : "–"]);
     const show = st.slice(0, 4);
     const ini = {bike:"B", run:"C", swim:"N", str:"P"}[a.s] || "•";
-    return '<div class="act"><div class="top"><span class="ic" style="background:'+(SPC[a.s]||"var(--muted)")+'" aria-hidden="true">'+ini+'</span><div style="min-width:0">'+
+    return '<a class="act" href="https://www.strava.com/activities/'+encodeURIComponent(a.id)+'" target="_blank" rel="noopener" aria-label="Abrir '+esc(a.n)+' en Strava"><div class="top"><span class="ic" style="background:'+(SPC[a.s]||"var(--muted)")+'" aria-hidden="true">'+ini+'</span><div style="min-width:0">'+
       '<div class="nm">'+esc(a.n || SPORT_ES[a.type] || a.type)+'</div><div class="when">'+esc(SPORT_ES[a.type] || a.type)+' · '+ago(a.d)+' '+esc(a.t)+(a.loc ? ' · '+esc(a.loc) : '')+'</div></div></div>'+
-      '<div class="stats">'+show.map(([k,v]) => '<div><div class="k">'+k+'</div><div class="v">'+esc(v)+'</div></div>').join("")+'</div></div>';
+      '<div class="stats">'+show.map(([k,v]) => '<div><div class="k">'+k+'</div><div class="v">'+esc(v)+'</div></div>').join("")+'</div><div class="open">Ver en Strava ›</div></a>';
   }).join("");
 }
 
